@@ -14,6 +14,7 @@ dependencies = [
 
 [project.scripts]
 notebooklm-export = "notebooklm_export.cli:main_sync"
+notebooklm-export-gui = "notebooklm_export.gui:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
