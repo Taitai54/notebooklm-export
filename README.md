@@ -70,7 +70,9 @@ notebooklm-export.bat list
 notebooklm-export.bat export "My Notebook" --out .\exports
 ```
 
-**Double-click behavior:** If you double-click `notebooklm-export.bat` with no arguments, it will show a short help message and **pause** (this is normal — the CLI needs a command like `list` or `export`). For one-click export, edit **`export.bat`**: set `NOTEBOOK=` to your notebook **title or UUID**, then double-click **`export.bat`**. It will auto-run `pip install -e .` if needed, export to a folder named `exports` next to the scripts, and pause so you can read any errors.
+**Double-click behavior:** If you double-click `notebooklm-export.bat` with no arguments, it will show a short help message and **pause** (this is normal — the CLI needs a command like `list` or `export`).
+
+For **`export.bat`**: you can either set `NOTEBOOK=` in the file to your **title or UUID**, or leave the placeholder — the script will **ask you to type the title or UUID** when you run it. It runs `pip install -e .` against this folder if needed (using `"%~dp0."` so paths with spaces work), sets **`PYTHONUNBUFFERED=1`** so the window does not look “stuck” during long exports, then writes under **`exports`** next to the scripts. At the end it lists that folder and waits for a key so you can read any errors.
 
 Discover MCP tool names (like a dry-run discovery pass):
 
