@@ -63,6 +63,13 @@ python -m notebooklm_export list
 python -m notebooklm_export export NOTEBOOK_UUID --out ./exports
 ```
 
+On Windows, from this repo folder you can use the launcher (same arguments as above):
+
+```bat
+notebooklm-export.bat list
+notebooklm-export.bat export "My Notebook" --out .\exports
+```
+
 Discover MCP tool names (like a dry-run discovery pass):
 
 ```bash
