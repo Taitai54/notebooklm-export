@@ -14,6 +14,35 @@ from tkinter import filedialog, messagebox, ttk
 import tkinter as tk
 
 
+def _gui_log_line_is_noise(line: str) -> bool:
+    """
+    notebooklm-mcp / FastMCP prints a large startup banner to the process log.
+    It clutters the Tk log and may show box-drawing as literal \\u2584 escapes.
+    Drop those lines; keep normal export messages and tracebacks.
+    """
+    if "FastMCP" in line or "gofastmcp" in line or "fastmcp.cloud" in line:
+        return True
+    if "Starting MCP server" in line and "stdio" in line:
+        return True
+    if "Update available:" in line and "fastmcp" in line.lower():
+        return True
+    if "Pin `fastmcp" in line or "Deploy free:" in line:
+        return True
+    if "server.py:" in line and "INFO" in line and "MCP server" in line:
+        return True
+    # Banner borders and logo rows (ASCII escapes or real block chars)
+    if "\\u258" in line or "\\u2728" in line or "\\U0001f" in line:
+        return True
+    s = line.strip()
+    if s.startswith("+") and s.rstrip().endswith("+") and "-" in s[:4]:
+        return True
+    if len(s) > 20 and s.startswith("|") and s.endswith("|"):
+        mid = s[1:-1].strip()
+        if not mid or mid.startswith("\\u") or "FastMCP" in mid or "notebooklm" in mid.lower():
+            return True
+    return False
+
+
 def _parse_list_stdout(raw: str) -> dict:
     raw = raw.strip()
     if not raw:
@@ -83,12 +112,16 @@ class NotebookExportGui:
 
         opts = ttk.Frame(self.root, padding=(8, 0))
         opts.pack(fill=tk.X)
-        self.var_summaries = tk.BooleanVar(value=True)
-        self.var_studio = tk.BooleanVar(value=True)
-        ttk.Checkbutton(opts, text="Include AI source summaries (--summaries)", variable=self.var_summaries).pack(
+        self.var_summaries = tk.BooleanVar(value=False)
+        self.var_sidecar_json = tk.BooleanVar(value=False)
+        self.var_studio = tk.BooleanVar(value=False)
+        ttk.Checkbutton(opts, text="AI summaries (.summary.md)", variable=self.var_summaries).pack(
             side=tk.LEFT, padx=(0, 12)
         )
-        ttk.Checkbutton(opts, text="Studio manifest (--studio-manifest)", variable=self.var_studio).pack(side=tk.LEFT)
+        ttk.Checkbutton(opts, text="Per-source .json files", variable=self.var_sidecar_json).pack(
+            side=tk.LEFT, padx=(0, 12)
+        )
+        ttk.Checkbutton(opts, text="Studio manifest", variable=self.var_studio).pack(side=tk.LEFT)
 
         mid = ttk.Frame(self.root, padding=8)
         mid.pack(fill=tk.BOTH, expand=True)
@@ -249,9 +282,17 @@ class NotebookExportGui:
                     ]
                     if self.var_summaries.get():
                         cmd.append("--summaries")
+                    if self.var_sidecar_json.get():
+                        cmd.append("--sidecar-json")
                     if self.var_studio.get():
                         cmd.append("--studio-manifest")
-                    child_env = {**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"}
+                    child_env = {
+                        **os.environ,
+                        "PYTHONUNBUFFERED": "1",
+                        "PYTHONIOENCODING": "utf-8",
+                        "PYTHONUTF8": "1",
+                        "NO_COLOR": "1",
+                    }
                     try:
                         proc = subprocess.Popen(
                             cmd,
@@ -265,7 +306,8 @@ class NotebookExportGui:
                         )
                         assert proc.stdout is not None
                         for line in proc.stdout:
-                            self._log_q.put(line)
+                            if not _gui_log_line_is_noise(line):
+                                self._log_q.put(line)
                         code = proc.wait(timeout=3600)
                     except subprocess.TimeoutExpired:
                         proc.kill()

@@ -1,6 +1,6 @@
 # notebooklm-export
 
-Export **raw source text**, optional **AI source summaries**, and **Studio artifact metadata** from a NotebookLM notebook using the official [`notebooklm-mcp`](https://www.npmjs.com/package/notebooklm-mcp) server over stdio.
+Export **raw source text** (one `.txt` per source) from a NotebookLM notebook using the official [`notebooklm-mcp`](https://www.npmjs.com/package/notebooklm-mcp) server over stdio. By default you get **only** those text files plus **`export_manifest.json`** (ids, labels, URLs, paths—good for batch jobs / Pinecone). Optional: per-source `.json` sidecars, **AI summaries** (`.summary.md`), and **Studio** metadata.
 
 This tool starts its **own** short-lived MCP process. It does not replace or conflict with Cursor’s NotebookLM MCP.
 
@@ -40,14 +40,15 @@ notebooklm-export list --json
 notebooklm-export list --max-results 500
 ```
 
-Export one notebook (text + per-source JSON metadata + manifest).
+Export one notebook: **`.txt` per source** + **`export_manifest.json`** (metadata for every source in one file).
 
 Use the **UUID**, or the **notebook title** (case-insensitive exact match; if that is not unique, a **unique substring** of the title):
 
 ```bash
 notebooklm-export export cf0de99f-b8fc-4014-b26c-647cd2a0d431 --out ./exports
 notebooklm-export export "December" --out ./exports
-notebooklm-export export "HMRC Tax Strategy" --out ./exports --summaries --studio-manifest
+# Optional extras (off by default):
+notebooklm-export export "HMRC Tax Strategy" --out ./exports --sidecar-json --summaries --studio-manifest
 ```
 
 If you have more than 500 notebooks, raise the list fetch limit when resolving by name:
@@ -89,7 +90,7 @@ Or double-click **`export-gui.bat`** in this folder (opens a new window).
 1. Click **Refresh list** to load notebooks from NotebookLM (same MCP auth as the CLI).
 2. **Ctrl+click** or **Shift+click** to select one or many rows.
 3. Choose an **export folder** (default: `Documents\NotebookLM_exports`).
-4. Toggle **summaries** / **studio manifest** if you want.
+4. Optional: turn on **AI summaries**, **per-source .json** files, or **Studio manifest** (all off by default—plain `.txt` + manifest only).
 5. **Export selected** runs the existing `export` command once per notebook and streams the log in the window.
 
 The GUI is a thin wrapper: it shells out to `python -m notebooklm_export …`, so behavior matches the terminal tool.
@@ -150,19 +151,19 @@ notebooklm-export ask-batch NOTEBOOK_UUID questions.txt --out ./qa.jsonl --follo
 ```
 exports/
   <notebook-title-slug>_<short-id>/
-    export_manifest.json
-    studio_status.json          # if --studio-manifest
-    <source-slug>.txt
-    <source-slug>.json
+    export_manifest.json        # always; per-source metadata lives here by default
+    <source-slug>.txt           # one per source (main body text)
+    <source-slug>.json          # if --sidecar-json
     <source-slug>.summary.md    # if --summaries
+    studio_status.json          # if --studio-manifest
 ```
 
 `studio_status.json` contains URLs for generated assets when the API provides them. Downloading binaries may require separate authenticated HTTP (cookies); this exporter saves metadata and leaves downloads to you.
 
 ## Database loading
 
-- Ingest `export_manifest.json` and each `*.json` next to sources for structured fields.
-- Store `content` from the `.txt` files (or load file paths only).
+- Use **`export_manifest.json`** for structured fields per source (id, label, url, `text_file` path); add **`--sidecar-json`** only if you want the same metadata duplicated into one file per source.
+- Ingest the **`.txt`** files as the document body for Pinecone / search.
 
 ## License
 

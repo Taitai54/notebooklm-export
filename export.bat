@@ -76,7 +76,8 @@ echo  Do not close this window until you see "Finished" below.
 echo -------------------------------------------------------------------------------
 echo.
 
-py -3 -m notebooklm_export export "!NOTEBOOK!" --out "%~dp0exports" --summaries --studio-manifest
+REM Default: long .txt per source + export_manifest.json only. Add --summaries --sidecar-json --studio-manifest if needed.
+py -3 -m notebooklm_export export "!NOTEBOOK!" --out "%~dp0exports"
 set "EC=!ERRORLEVEL!"
 goto :finish
 
@@ -101,7 +102,7 @@ echo  Do not close this window until you see "Finished" below.
 echo -------------------------------------------------------------------------------
 echo.
 
-python -m notebooklm_export export "!NOTEBOOK!" --out "%~dp0exports" --summaries --studio-manifest
+python -m notebooklm_export export "!NOTEBOOK!" --out "%~dp0exports"
 set "EC=!ERRORLEVEL!"
 
 :finish

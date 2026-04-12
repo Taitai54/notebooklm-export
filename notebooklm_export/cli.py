@@ -132,7 +132,6 @@ async def run_export(session: ClientSession, args: argparse.Namespace) -> int:
 
         base = slugify(f"{label}_{source_id[:8]}")
         txt_path = nb_dir / f"{base}.txt"
-        meta_path = nb_dir / f"{base}.json"
 
         text_body = payload.get("content") or ""
         txt_path.write_text(text_body, encoding="utf-8")
@@ -157,7 +156,11 @@ async def run_export(session: ClientSession, args: argparse.Namespace) -> int:
                 summ_path.write_text(str(summ["summary"]), encoding="utf-8")
                 meta["summary_file"] = _rel_or_abs(summ_path, out_root)
 
-        meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+        if args.sidecar_json:
+            (nb_dir / f"{base}.json").write_text(
+                json.dumps(meta, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
         manifest["sources"].append(meta)
 
     if args.studio_manifest:
@@ -311,7 +314,12 @@ async def amain(argv: list[str] | None = None) -> int:
     p_exp.add_argument(
         "--summaries",
         action="store_true",
-        help="Also call source_describe and write .summary.md per source",
+        help="Also call source_describe and write .summary.md per source (off by default)",
+    )
+    p_exp.add_argument(
+        "--sidecar-json",
+        action="store_true",
+        help="Write one .json metadata file per source next to each .txt (default: off; same fields are in export_manifest.json)",
     )
     p_exp.add_argument(
         "--studio-manifest",
