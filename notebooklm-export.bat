@@ -21,19 +21,31 @@ if "%HAS_PY%"=="0" if "%HAS_PYTHON%"=="0" (
   exit /b 900
 )
 
-REM Double-click with no args: argparse would fail and the window would vanish
+REM Double-click with no args: open the GUI (same as export-gui.bat).
+REM CLI users: run from Command Prompt with a subcommand, e.g. list / export / discover.
 if "%~1"=="" (
   echo.
-  echo notebooklm-export.bat — no command given.
+  echo Starting the NotebookLM export GUI in a new window...
   echo.
-  echo Open Command Prompt here and run for example:
+  echo Tip: For the command line, open Command Prompt here and run:
   echo   notebooklm-export.bat list
   echo   notebooklm-export.bat export "My notebook title" --out .\exports
   echo.
-  echo Or double-click  export.bat  to export using the default notebook set inside that file.
+  echo For one-click export without the GUI, double-click export.bat
   echo.
-  pause
-  exit /b 1
+  if exist "%~dp0export-gui.bat" (
+    call "%~dp0export-gui.bat"
+  ) else (
+    set "PYTHONUNBUFFERED=1"
+    set "PYTHONIOENCODING=utf-8"
+    if "%HAS_PY%"=="1" (
+      start "NotebookLM export" py -3 -m notebooklm_export.gui
+    ) else (
+      start "NotebookLM export" python -m notebooklm_export.gui
+    )
+  )
+  timeout /t 2 /nobreak >nul
+  exit /b 0
 )
 
 if "%HAS_PY%"=="1" (

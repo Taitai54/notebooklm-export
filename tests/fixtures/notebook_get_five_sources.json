@@ -1,0 +1,15 @@
+{
+  "status": "success",
+  "notebook": [
+    [
+      "Dummy notebook (fixture)",
+      [
+        [["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"], "Source Alpha"],
+        [["bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"], "Source Beta"],
+        [["cccccccc-cccc-4ccc-8ccc-cccccccccccc"], "Source Gamma"],
+        [["dddddddd-dddd-4ddd-8ddd-dddddddddddd"], "Source Delta"],
+        [["eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"], "Source Epsilon"]
+      ]
+    ]
+  ]
+}

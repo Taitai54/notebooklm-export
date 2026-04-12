@@ -70,7 +70,7 @@ notebooklm-export.bat list
 notebooklm-export.bat export "My Notebook" --out .\exports
 ```
 
-**Double-click behavior:** If you double-click `notebooklm-export.bat` with no arguments, it will show a short help message and **pause** (this is normal — the CLI needs a command like `list` or `export`).
+**Double-click behavior:** If you double-click `notebooklm-export.bat` with no arguments, it **starts the graphical exporter** (same as `export-gui.bat`). This window shows a short tip, then closes after a couple of seconds while the GUI runs in another window. For the CLI only, open Command Prompt in this folder and run `notebooklm-export.bat list` (or `export`, etc.).
 
 For **`export.bat`**: you can either set `NOTEBOOK=` in the file to your **title or UUID**, or leave the placeholder — the script will **ask you to type the title or UUID** when you run it. It runs `pip install -e .` against this folder if needed (using `"%~dp0."` so paths with spaces work), sets **`PYTHONUNBUFFERED=1`** so the window does not look “stuck” during long exports, then writes under **`exports`** next to the scripts. At the end it lists that folder and waits for a key so you can read any errors.
 
@@ -93,6 +93,37 @@ Or double-click **`export-gui.bat`** in this folder (opens a new window).
 5. **Export selected** runs the existing `export` command once per notebook and streams the log in the window.
 
 The GUI is a thin wrapper: it shells out to `python -m notebooklm_export …`, so behavior matches the terminal tool.
+
+### Verify exports (all sources → `.txt` for Pinecone, etc.)
+
+After an export, each successful source produces one **`.txt`** in the notebook folder. The exporter also writes **`export_manifest.json`** listing every source (including any MCP errors). Check that counts line up **without** talking to NotebookLM:
+
+```bash
+notebooklm-export verify-export "C:\path\to\Notebook_folder_slug_UUIDprefix"
+notebooklm-export verify-export "C:\path\to\NotebookLM_exports"   # if exactly one notebook subfolder
+notebooklm-export verify-export .\exports\MyNotebook_abc12345 --json
+```
+
+Exit code **0** = manifest says *N* successes and the folder has *N* `.txt` files. **2** = no manifest (re-export with a current build so the manifest is written).
+
+### Dummy notebook (manual end-to-end)
+
+This repo cannot create notebooks without your Google session. To sanity-check a **live** export:
+
+1. In **NotebookLM**, create a notebook and add **several** pasted-text or URL sources (give them obvious titles).
+2. Run **`notebooklm-export list`** and confirm **source count** matches what you added.
+3. **Export** that notebook, then **`notebooklm-export verify-export`** on the output folder.
+
+Optional: Cursor’s **NotebookLM MCP** includes `notebook_create` and `notebook_add_text` if you want to script a throwaway notebook (same auth as the CLI).
+
+### Automated tests (offline)
+
+The parser is tested against a **fixture** that mimics `notebook_get` with **five** sources (no network). From the repo root:
+
+```bash
+pip install -e ".[dev]"
+pytest -q
+```
 
 Discover MCP tool names (like a dry-run discovery pass):
 

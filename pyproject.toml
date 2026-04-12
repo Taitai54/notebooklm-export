@@ -16,6 +16,9 @@ dependencies = [
 notebooklm-export = "notebooklm_export.cli:main_sync"
 notebooklm-export-gui = "notebooklm_export.gui:main"
 
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["notebooklm_export*"]

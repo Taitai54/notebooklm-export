@@ -12,6 +12,7 @@ from typing import Any
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+from notebooklm_export.verify_export import run_verify_export_cli
 from notebooklm_export.mcp_util import (
     McpStdioConfig,
     extract_notebook_title_from_get,
@@ -246,6 +247,10 @@ async def run_ask_batch(session: ClientSession, args: argparse.Namespace) -> int
     return 0
 
 
+async def _verify_export_unreachable(_session: ClientSession, _args: argparse.Namespace) -> int:  # pragma: no cover
+    raise RuntimeError("verify-export is handled before MCP connect; this is a bug")
+
+
 async def run_discover(_session: ClientSession, args: argparse.Namespace) -> int:
     """Print MCP tool names (same idea as ENABLE_DOWNLOAD=False in the original snippet)."""
     tools = await _session.list_tools()
@@ -319,6 +324,18 @@ async def amain(argv: list[str] | None = None) -> int:
     p_dis.add_argument("--json", action="store_true")
     p_dis.set_defaults(func=run_discover)
 
+    p_ver = sub.add_parser(
+        "verify-export",
+        help="Check an export folder against export_manifest.json (no MCP; for batch/Pinecone QA)",
+    )
+    p_ver.add_argument(
+        "path",
+        type=Path,
+        help="Notebook export folder (contains export_manifest.json) or export root with one notebook subfolder",
+    )
+    p_ver.add_argument("--json", action="store_true", help="Machine-readable result on stdout")
+    p_ver.set_defaults(func=_verify_export_unreachable)
+
     p_ask = sub.add_parser(
         "ask",
         help="Run one notebook_query (model answer grounded in existing sources)",
@@ -389,6 +406,9 @@ async def amain(argv: list[str] | None = None) -> int:
     p_batch.set_defaults(func=run_ask_batch)
 
     args = parser.parse_args(argv)
+
+    if args.cmd == "verify-export":
+        return run_verify_export_cli(args.path, json_out=args.json)
 
     cfg = load_mcp_stdio_config()
     if args.mcp_command:
