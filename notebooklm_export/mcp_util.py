@@ -5,6 +5,11 @@ from __future__ import annotations
 import json
 import os
 import re
+
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z",
+    re.IGNORECASE,
+)
 from dataclasses import dataclass
 from typing import Any
 
@@ -88,3 +93,68 @@ def parse_notebook_list(data: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(notebooks, list):
         return []
     return [n for n in notebooks if isinstance(n, dict)]
+
+
+def looks_like_notebook_uuid(ref: str) -> bool:
+    return bool(_UUID_RE.match(ref.strip()))
+
+
+def resolve_notebook_ref(notebooks: list[dict[str, Any]], ref: str) -> tuple[str | None, str]:
+    """
+    Map a user string to a notebook id.
+
+    - If it looks like a UUID, return it as-is (caller should still verify via API).
+    - Else match title: exact case-insensitive first, then unique substring.
+
+    Returns (notebook_id_or_None, message). On success, message is a short log line;
+    on failure, message is the error (multi-line allowed).
+    """
+    ref = ref.strip()
+    if not ref:
+        return None, "Empty notebook id or name."
+
+    if looks_like_notebook_uuid(ref):
+        return ref, ""
+
+    needle = ref.casefold()
+
+    exact: list[dict[str, Any]] = []
+    for nb in notebooks:
+        t = nb.get("title")
+        if isinstance(t, str) and t.casefold().strip() == needle:
+            exact.append(nb)
+
+    if len(exact) == 1:
+        nid = str(exact[0]["id"])
+        title = exact[0].get("title", "")
+        return nid, f'Resolved name (exact match) {title!r} -> {nid}'
+
+    if len(exact) > 1:
+        lines = [f'  {nb["id"]}\t{nb.get("title")}' for nb in exact]
+        return None, "Multiple notebooks have that exact title; use the UUID:\n" + "\n".join(lines)
+
+    subs: list[dict[str, Any]] = []
+    for nb in notebooks:
+        t = nb.get("title")
+        if isinstance(t, str) and needle in t.casefold():
+            subs.append(nb)
+
+    if len(subs) == 1:
+        nid = str(subs[0]["id"])
+        title = subs[0].get("title", "")
+        return nid, f'Resolved name (unique substring) {title!r} -> {nid}'
+
+    if len(subs) > 1:
+        lines = [f'  {nb["id"]}\t{nb.get("title")}' for nb in subs[:25]]
+        more = f"\n  … and {len(subs) - 25} more" if len(subs) > 25 else ""
+        return (
+            None,
+            "Multiple notebooks match that name as a substring; use a longer/sparser name or the UUID:\n"
+            + "\n".join(lines)
+            + more,
+        )
+
+    return (
+        None,
+        f'No notebook matched {ref!r}. Run "notebooklm-export list" to see titles and UUIDs.',
+    )

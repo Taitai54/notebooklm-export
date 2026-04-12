@@ -40,11 +40,20 @@ notebooklm-export list --json
 notebooklm-export list --max-results 500
 ```
 
-Export one notebook (text + per-source JSON metadata + manifest):
+Export one notebook (text + per-source JSON metadata + manifest).
+
+Use the **UUID**, or the **notebook title** (case-insensitive exact match; if that is not unique, a **unique substring** of the title):
 
 ```bash
-notebooklm-export export NOTEBOOK_UUID --out ./exports
-notebooklm-export export NOTEBOOK_UUID --out ./exports --summaries --studio-manifest
+notebooklm-export export cf0de99f-b8fc-4014-b26c-647cd2a0d431 --out ./exports
+notebooklm-export export "December" --out ./exports
+notebooklm-export export "HMRC Tax Strategy" --out ./exports --summaries --studio-manifest
+```
+
+If you have more than 500 notebooks, raise the list fetch limit when resolving by name:
+
+```bash
+notebooklm-export export "My Title" --list-max-results 2000 --out ./exports
 ```
 
 Module form:

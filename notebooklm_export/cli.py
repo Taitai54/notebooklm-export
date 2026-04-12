@@ -18,8 +18,10 @@ from notebooklm_export.mcp_util import (
     extract_sources_from_notebook_get,
     first_text_block,
     load_mcp_stdio_config,
+    looks_like_notebook_uuid,
     parse_notebook_list,
     parse_tool_json,
+    resolve_notebook_ref,
     slugify,
 )
 
@@ -34,6 +36,29 @@ def _rel_or_abs(path: Path, root: Path) -> str:
 async def call_tool_json(session: ClientSession, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     res = await session.call_tool(name, arguments)
     return parse_tool_json(first_text_block(res))
+
+
+async def resolve_notebook_id(
+    session: ClientSession,
+    ref: str,
+    list_max_results: int,
+) -> tuple[str | None, str]:
+    """
+    Return (notebook_id, side_message). side_message is stderr log on success-by-name,
+    or empty when ref was already a UUID. On failure, notebook_id is None and message is error.
+    """
+    ref = ref.strip()
+
+    if looks_like_notebook_uuid(ref):
+        return ref, ""
+
+    payload = await call_tool_json(session, "notebook_list", {"max_results": list_max_results})
+    if payload.get("status") != "success":
+        return None, f"notebook_list failed: {json.dumps(payload, indent=2, default=str)}"
+
+    notebooks = parse_notebook_list(payload)
+    nid, msg = resolve_notebook_ref(notebooks, ref)
+    return nid, msg
 
 
 async def run_list(session: ClientSession, args: argparse.Namespace) -> int:
@@ -57,7 +82,17 @@ async def run_list(session: ClientSession, args: argparse.Namespace) -> int:
 
 
 async def run_export(session: ClientSession, args: argparse.Namespace) -> int:
-    notebook_id = args.notebook_id.strip()
+    notebook_id, res_msg = await resolve_notebook_id(
+        session,
+        args.notebook_ref,
+        args.list_max_results,
+    )
+    if notebook_id is None:
+        print(res_msg, file=sys.stderr)
+        return 1
+    if res_msg:
+        print(res_msg, file=sys.stderr)
+
     out_root = Path(args.out).resolve()
 
     details = await call_tool_json(session, "notebook_get", {"notebook_id": notebook_id})
@@ -143,8 +178,19 @@ async def run_export(session: ClientSession, args: argparse.Namespace) -> int:
 
 
 async def run_ask(session: ClientSession, args: argparse.Namespace) -> int:
+    notebook_id, res_msg = await resolve_notebook_id(
+        session,
+        args.notebook_ref,
+        args.list_max_results,
+    )
+    if notebook_id is None:
+        print(res_msg, file=sys.stderr)
+        return 1
+    if res_msg:
+        print(res_msg, file=sys.stderr)
+
     arguments: dict[str, Any] = {
-        "notebook_id": args.notebook_id.strip(),
+        "notebook_id": notebook_id,
         "query": args.query,
     }
     if args.timeout is not None:
@@ -159,6 +205,17 @@ async def run_ask(session: ClientSession, args: argparse.Namespace) -> int:
 
 
 async def run_ask_batch(session: ClientSession, args: argparse.Namespace) -> int:
+    notebook_id, res_msg = await resolve_notebook_id(
+        session,
+        args.notebook_ref,
+        args.list_max_results,
+    )
+    if notebook_id is None:
+        print(res_msg, file=sys.stderr)
+        return 1
+    if res_msg:
+        print(res_msg, file=sys.stderr)
+
     qpath = Path(args.questions_file)
     lines = [ln.strip() for ln in qpath.read_text(encoding="utf-8").splitlines() if ln.strip()]
     out_path = Path(args.out)
@@ -168,7 +225,7 @@ async def run_ask_batch(session: ClientSession, args: argparse.Namespace) -> int
     for i, question in enumerate(lines):
         await asyncio.sleep(args.delay)
         arguments: dict[str, Any] = {
-            "notebook_id": args.notebook_id.strip(),
+            "notebook_id": notebook_id,
             "query": question,
         }
         if args.timeout is not None:
@@ -228,7 +285,17 @@ async def amain(argv: list[str] | None = None) -> int:
     p_list.set_defaults(func=run_list)
 
     p_exp = sub.add_parser("export", help="Export all sources for one notebook")
-    p_exp.add_argument("notebook_id", help="Notebook UUID")
+    p_exp.add_argument(
+        "notebook_ref",
+        help="Notebook UUID, or title (exact case-insensitive match, else unique substring)",
+    )
+    p_exp.add_argument(
+        "--list-max-results",
+        type=int,
+        default=500,
+        metavar="N",
+        help="When resolving by name, max notebooks to fetch (default: 500)",
+    )
     p_exp.add_argument("--out", default="./notebooklm_exports", help="Output root directory")
     p_exp.add_argument(
         "--delay",
@@ -256,7 +323,17 @@ async def amain(argv: list[str] | None = None) -> int:
         "ask",
         help="Run one notebook_query (model answer grounded in existing sources)",
     )
-    p_ask.add_argument("notebook_id", help="Notebook UUID")
+    p_ask.add_argument(
+        "notebook_ref",
+        help="Notebook UUID, or title (exact case-insensitive match, else unique substring)",
+    )
+    p_ask.add_argument(
+        "--list-max-results",
+        type=int,
+        default=500,
+        metavar="N",
+        help="When resolving by name, max notebooks to fetch (default: 500)",
+    )
     p_ask.add_argument("query", help="Question text")
     p_ask.add_argument(
         "--timeout",
@@ -271,7 +348,17 @@ async def amain(argv: list[str] | None = None) -> int:
         "ask-batch",
         help="Run notebook_query for each non-empty line in a UTF-8 text file (JSONL output)",
     )
-    p_batch.add_argument("notebook_id", help="Notebook UUID")
+    p_batch.add_argument(
+        "notebook_ref",
+        help="Notebook UUID, or title (exact case-insensitive match, else unique substring)",
+    )
+    p_batch.add_argument(
+        "--list-max-results",
+        type=int,
+        default=500,
+        metavar="N",
+        help="When resolving by name, max notebooks to fetch (default: 500)",
+    )
     p_batch.add_argument(
         "questions_file",
         type=Path,
