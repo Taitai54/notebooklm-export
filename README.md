@@ -74,6 +74,26 @@ notebooklm-export.bat export "My Notebook" --out .\exports
 
 For **`export.bat`**: you can either set `NOTEBOOK=` in the file to your **title or UUID**, or leave the placeholder — the script will **ask you to type the title or UUID** when you run it. It runs `pip install -e .` against this folder if needed (using `"%~dp0."` so paths with spaces work), sets **`PYTHONUNBUFFERED=1`** so the window does not look “stuck” during long exports, then writes under **`exports`** next to the scripts. At the end it lists that folder and waits for a key so you can read any errors.
 
+### GUI (pick notebooks to export)
+
+Uses **Tkinter** (included with Python on Windows). After `pip install -e .`:
+
+```bash
+notebooklm-export-gui
+# or
+python -m notebooklm_export.gui
+```
+
+Or double-click **`export-gui.bat`** in this folder (opens a new window).
+
+1. Click **Refresh list** to load notebooks from NotebookLM (same MCP auth as the CLI).
+2. **Ctrl+click** or **Shift+click** to select one or many rows.
+3. Choose an **export folder** (default: `Documents\NotebookLM_exports`).
+4. Toggle **summaries** / **studio manifest** if you want.
+5. **Export selected** runs the existing `export` command once per notebook and streams the log in the window.
+
+The GUI is a thin wrapper: it shells out to `python -m notebooklm_export …`, so behavior matches the terminal tool.
+
 Discover MCP tool names (like a dry-run discovery pass):
 
 ```bash
