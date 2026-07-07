@@ -113,7 +113,7 @@ echo ===========================================================================
 if not "!EC!"=="0" (
   echo.
   echo Something went wrong ^(see messages above^). Common fixes:
-  echo   - Run notebooklm-mcp-auth once so NotebookLM can sign in
+  echo   - Run nlm login (or notebooklm-mcp-auth) once so NotebookLM can sign in
   echo   - Run from cmd:  py -3 -m notebooklm_export list
   echo.
 ) else (

@@ -1,0 +1,14 @@
+{
+  "status": "success",
+  "notebook": {
+    "id": "00000000-0000-4000-8000-000000000099",
+    "title": "Modern API notebook (fixture)",
+    "source_count": 3,
+    "url": "https://notebooklm.google.com/notebook/00000000-0000-4000-8000-000000000099"
+  },
+  "sources": [
+    {"id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "title": "Source Alpha"},
+    {"id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "title": "Source Beta"},
+    {"id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc", "title": "Source Gamma"}
+  ]
+}

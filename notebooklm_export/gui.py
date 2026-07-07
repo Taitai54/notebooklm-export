@@ -100,6 +100,28 @@ class NotebookExportGui:
         self._log_q: queue.Queue[str | None] = queue.Queue()
         self._busy = False
 
+        # --- Styling ---
+        style = ttk.Style()
+        style.theme_use("clam")  # Clam is more customizable than default
+        
+        # Color palette
+        bg_color = "#1e1e2e"     # Dark background
+        fg_color = "#cdd6f4"     # Light text
+        accent_color = "#89b4fa"  # Blue accent
+        btn_bg = "#313244"
+        btn_fg = "#f5e0dc"
+
+        self.root.configure(bg=bg_color)
+        
+        # Configure styles
+        style.configure("TFrame", background=bg_color)
+        style.configure("TLabel", background=bg_color, foreground=fg_color, font=("Segoe UI", 10))
+        style.configure("TLabelframe", background=bg_color, foreground=accent_color, font=("Segoe UI", 10, "bold"))
+        style.configure("TLabelframe.Label", background=bg_color, foreground=accent_color)
+        style.configure("TButton", font=("Segoe UI", 9, "bold"))
+        style.configure("TCheckbutton", background=bg_color, foreground=fg_color)
+        style.configure("TEntry", fieldbackground=btn_bg, foreground=fg_color)
+
         default_out = Path.home() / "Documents" / "NotebookLM_exports"
 
         top = ttk.Frame(self.root, padding=8)
@@ -107,7 +129,8 @@ class NotebookExportGui:
 
         ttk.Label(top, text="Export folder:").pack(side=tk.LEFT)
         self.out_var = tk.StringVar(value=str(default_out))
-        ttk.Entry(top, textvariable=self.out_var, width=56).pack(side=tk.LEFT, padx=6, fill=tk.X, expand=True)
+        entry = ttk.Entry(top, textvariable=self.out_var, width=56)
+        entry.pack(side=tk.LEFT, padx=6, fill=tk.X, expand=True)
         ttk.Button(top, text="Browse…", command=self._browse_out).pack(side=tk.LEFT)
 
         opts = ttk.Frame(self.root, padding=(8, 0))
@@ -115,10 +138,10 @@ class NotebookExportGui:
         self.var_summaries = tk.BooleanVar(value=False)
         self.var_sidecar_json = tk.BooleanVar(value=False)
         self.var_studio = tk.BooleanVar(value=False)
-        ttk.Checkbutton(opts, text="AI summaries (.summary.md)", variable=self.var_summaries).pack(
+        ttk.Checkbutton(opts, text="AI summaries", variable=self.var_summaries).pack(
             side=tk.LEFT, padx=(0, 12)
         )
-        ttk.Checkbutton(opts, text="Per-source .json files", variable=self.var_sidecar_json).pack(
+        ttk.Checkbutton(opts, text="Source JSON", variable=self.var_sidecar_json).pack(
             side=tk.LEFT, padx=(0, 12)
         )
         ttk.Checkbutton(opts, text="Studio manifest", variable=self.var_studio).pack(side=tk.LEFT)
@@ -126,8 +149,17 @@ class NotebookExportGui:
         mid = ttk.Frame(self.root, padding=8)
         mid.pack(fill=tk.BOTH, expand=True)
 
-        left = ttk.LabelFrame(mid, text="Notebooks (Ctrl+click or Shift+click to select multiple)", padding=4)
-        left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        # --- Notebooks (Left) ---
+        left_outer = tk.Frame(mid, width=280, bg="#1e1e2e")
+        left_outer.pack(side=tk.LEFT, fill=tk.Y)
+        left_outer.pack_propagate(False)
+
+        left = ttk.LabelFrame(
+            left_outer,
+            text="1. Notebooks (Ctrl/Shift+click for many)",
+            padding=4,
+        )
+        left.pack(fill=tk.BOTH, expand=True)
 
         scroll = ttk.Scrollbar(left)
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
@@ -135,35 +167,98 @@ class NotebookExportGui:
             left,
             selectmode=tk.EXTENDED,
             yscrollcommand=scroll.set,
-            activestyle="dotbox",
+            activestyle="none",
             font=("Segoe UI", 10),
+            bg="#181825",
+            fg="#cdd6f4",
+            selectbackground="#89b4fa",
+            selectforeground="#11111b",
+            borderwidth=0,
+            highlightthickness=0,
+            width=34,
         )
         self.listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scroll.config(command=self.listbox.yview)
+        self.listbox.bind("<<ListboxSelect>>", self._on_nb_select)
 
+        # --- Sources (Middle) ---
+        self.src_frame = ttk.LabelFrame(mid, text="2. Select Sources", padding=4)
+        self.src_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=8)
+        
+        self.src_canvas = tk.Canvas(self.src_frame, bg="#1e1e2e", highlightthickness=0)
+        self.src_scroll = ttk.Scrollbar(self.src_frame, orient="vertical", command=self.src_canvas.yview)
+        self.src_container = ttk.Frame(self.src_canvas)
+        
+        self.src_canvas.create_window((0, 0), window=self.src_container, anchor="nw", tags="self.src_container")
+        self.src_canvas.configure(yscrollcommand=self.src_scroll.set)
+        
+        self.src_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.src_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        self.src_container.bind("<Configure>", lambda e: self.src_canvas.configure(scrollregion=self.src_canvas.bbox("all")))
+        self.src_canvas.bind("<Enter>", lambda _: self.src_canvas.bind_all("<MouseWheel>", self._on_mousewheel))
+        self.src_canvas.bind("<Leave>", lambda _: self.src_canvas.unbind_all("<MouseWheel>"))
+
+        # --- Actions (Right) ---
         right = ttk.Frame(mid, padding=(8, 0))
         right.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Primary actions
         ttk.Button(right, text="Refresh list", command=self._refresh_async).pack(fill=tk.X, pady=(0, 6))
-        ttk.Button(right, text="Select all", command=self._select_all).pack(fill=tk.X, pady=(0, 6))
-        ttk.Button(right, text="Clear selection", command=self._clear_sel).pack(fill=tk.X, pady=(0, 6))
-        ttk.Button(right, text="Export selected", command=self._export_async).pack(fill=tk.X, pady=(12, 6))
-        ttk.Button(right, text="Open export folder", command=self._open_out).pack(fill=tk.X, pady=(0, 6))
+        ttk.Button(right, text="Check Auth", command=self._check_conn_async).pack(fill=tk.X, pady=(0, 6))
+        ttk.Button(right, text="Select all notebooks", command=self._select_all_notebooks).pack(
+            fill=tk.X, pady=(0, 6)
+        )
+        ttk.Button(right, text="Clear notebooks", command=self._clear_notebook_sel).pack(fill=tk.X, pady=(0, 6))
+        
+        # Selection
+        ttk.Button(right, text="Select All Sources", command=self._select_all_sources).pack(fill=tk.X, pady=(12, 6))
+        ttk.Button(right, text="Deselect All", command=self._clear_sources).pack(fill=tk.X, pady=(0, 6))
+        
+        # Auth recovery
+        ttk.Separator(right, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=12)
+        ttk.Label(right, text="Auth Issues?", font=("Segoe UI", 9, "italic")).pack(fill=tk.X)
+        ttk.Button(right, text="Copy Login Cmd", command=self._copy_login_cmd).pack(fill=tk.X, pady=(4, 12))
+        
+        # Final actions
+        ttk.Button(right, text="Export Selected", command=self._export_async).pack(fill=tk.X, pady=(0, 6))
+        ttk.Button(right, text="Open folder", command=self._open_out).pack(fill=tk.X, pady=(0, 6))
 
-        log_fr = ttk.LabelFrame(self.root, text="Log", padding=4)
+        log_fr = ttk.LabelFrame(self.root, text="System Log", padding=4)
         log_fr.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
         lscroll = ttk.Scrollbar(log_fr)
         lscroll.pack(side=tk.RIGHT, fill=tk.Y)
-        self.log = tk.Text(log_fr, height=10, wrap=tk.WORD, yscrollcommand=lscroll.set, font=("Consolas", 9))
+        self.log = tk.Text(
+            log_fr, 
+            height=8, 
+            wrap=tk.WORD, 
+            yscrollcommand=lscroll.set, 
+            font=("Consolas", 9),
+            bg="#11111b",
+            fg="#a6adc8",
+            borderwidth=0,
+            padx=5,
+            pady=5
+        )
         self.log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         lscroll.config(command=self.log.yview)
 
         st = ttk.Frame(self.root, padding=(8, 0))
         st.pack(fill=tk.X, pady=(0, 6))
-        self.status = ttk.Label(st, text="Load notebooks with “Refresh list”.")
+        self.status = ttk.Label(st, text="Ready. Use 'Refresh list' to begin.")
         self.status.pack(side=tk.LEFT)
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        self._active_nb_id: str | None = None
+        self._source_vars: dict[str, tk.BooleanVar] = {}
+        self._source_selection: dict[str, dict[str, tk.BooleanVar]] = {}
+        self._current_sources: list[tuple[str, str]] = []
+
         self._poll_log()
+
+    def _on_mousewheel(self, event):
+        self.src_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
 
     def _browse_out(self) -> None:
         d = filedialog.askdirectory(initialdir=self.out_var.get() or str(Path.home()))
@@ -223,17 +318,169 @@ class NotebookExportGui:
         self._notebooks = nbs
         self.listbox.delete(0, tk.END)
         for nb in nbs:
-            tid = str(nb.get("id", ""))
             title = str(nb.get("title", "(no title)"))
             sc = nb.get("source_count", "?")
-            self.listbox.insert(tk.END, f"{title}  —  {sc} sources  —  {tid[:8]}…")
+            self.listbox.insert(tk.END, f" {title} ({sc})")
         self._log(f"Loaded {len(nbs)} notebook(s).\n")
 
-    def _select_all(self) -> None:
+    def _save_source_selection(self) -> None:
+        if self._active_nb_id and self._source_vars:
+            self._source_selection[self._active_nb_id] = dict(self._source_vars)
+
+    def _on_nb_select(self, event) -> None:
+        idxs = self.listbox.curselection()
+        if not idxs:
+            return
+        self._save_source_selection()
+        idx = idxs[-1]
+        nb = self._notebooks[idx]
+        nb_id = str(nb.get("id", ""))
+        if not nb_id:
+            return
+        self._active_nb_id = nb_id
+        self._log(f"\nFetching sources for: {nb.get('title')}...\n")
+        self._fetch_sources_async(nb_id)
+
+    def _fetch_sources_async(self, nb_id: str) -> None:
+        if self._busy:
+            return
+        self._set_busy(True)
+
+        def work(notebook_id: str) -> None:
+            cmd = [sys.executable, "-m", "notebooklm_export", "get-sources", notebook_id]
+            try:
+                p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", timeout=120)
+                if p.returncode == 0:
+                    data = _parse_list_stdout(p.stdout or "")
+                    sources = data.get("sources", [])
+                    self.root.after(0, lambda: self._on_sources_done(notebook_id, sources))
+                else:
+                    err = (p.stderr or p.stdout or "get-sources failed").strip()
+                    self.root.after(0, lambda: self._on_sources_done(notebook_id, [], err))
+            except Exception as e:
+                self.root.after(0, lambda: self._on_sources_done(notebook_id, [], str(e)))
+
+        threading.Thread(target=work, args=(nb_id,), daemon=True).start()
+
+    def _on_sources_done(self, nb_id: str, sources: list[dict], err: str | None = None) -> None:
+        self._set_busy(False)
+        if err:
+            self._log(f"[error] {err}\n")
+            return
+
+        for widget in self.src_container.winfo_children():
+            widget.destroy()
+
+        self._source_vars = {}
+        self._current_sources = []
+        self._active_nb_id = nb_id
+        saved = self._source_selection.get(nb_id, {})
+
+        if not sources:
+            ttk.Label(
+                self.src_container,
+                text="No sources found in this notebook.",
+                foreground="#f38ba8",
+            ).pack(pady=20)
+            return
+
+        for src in sources:
+            sid = str(src.get("id", ""))
+            if not sid:
+                continue
+            label = src.get("title") or src.get("label") or sid
+            self._current_sources.append((sid, label))
+
+            var = saved.get(sid)
+            if var is None:
+                var = tk.BooleanVar(value=True)
+            self._source_vars[sid] = var
+
+            card = tk.Frame(
+                self.src_container,
+                bg="#313244",
+                padx=8,
+                pady=8,
+                highlightbackground="#45475a",
+                highlightthickness=1,
+            )
+            card.pack(fill=tk.X, pady=2, padx=5)
+
+            cb = tk.Checkbutton(
+                card,
+                text=label,
+                variable=var,
+                bg="#313244",
+                fg="#cdd6f4",
+                selectcolor="#1e1e2e",
+                activebackground="#313244",
+                activeforeground="#89b4fa",
+                font=("Segoe UI", 9),
+                anchor="w",
+            )
+            cb.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+            stype = src.get("source_type") or "source"
+            tk.Label(
+                card,
+                text=stype,
+                font=("Consolas", 8),
+                bg="#45475a",
+                fg="#bac2de",
+                padx=4,
+            ).pack(side=tk.RIGHT)
+
+        self._source_selection[nb_id] = dict(self._source_vars)
+
+    def _select_all_sources(self) -> None:
+        for var in self._source_vars.values():
+            var.set(True)
+
+    def _clear_sources(self) -> None:
+        for var in self._source_vars.values():
+            var.set(False)
+
+    def _check_conn_async(self) -> None:
+        if self._busy:
+            return
+        self._set_busy(True)
+        self._log("\n--- Checking NotebookLM connection… ---\n")
+
+        def work() -> None:
+            cmd = [sys.executable, "-m", "notebooklm_export", "check-auth"]
+            try:
+                p = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                msg = p.stdout + p.stderr
+                self.root.after(0, lambda: self._on_check_done(p.returncode == 0, msg))
+            except Exception as e:
+                self.root.after(0, lambda: self._on_check_done(False, str(e)))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_check_done(self, success: bool, msg: str) -> None:
+        self._set_busy(False)
+        self._log(msg + "\n")
+        if success:
+            messagebox.showinfo("Connection", "NotebookLM connection is LIVE.")
+        else:
+            messagebox.showerror("Connection", "Connection failed. Please use 'Copy Login Cmd' and run it in a terminal.")
+
+    def _copy_login_cmd(self) -> None:
+        cmd = "nlm login"
+        self.root.clipboard_clear()
+        self.root.clipboard_append(cmd)
+        self._log(f"\n[info] Copied to clipboard: {cmd}\n")
+        messagebox.showinfo(
+            "Copied",
+            f"Copied to clipboard:\n\n{cmd}\n\n"
+            "Paste into a terminal to sign in. Alternative: notebooklm-mcp-auth",
+        )
+
+    def _select_all_notebooks(self) -> None:
         if self.listbox.size() > 0:
             self.listbox.select_set(0, tk.END)
 
-    def _clear_sel(self) -> None:
+    def _clear_notebook_sel(self) -> None:
         self.listbox.selection_clear(0, tk.END)
 
     def _selected_indices(self) -> list[int]:
@@ -257,6 +504,8 @@ class NotebookExportGui:
             messagebox.showerror("Export", "Selection does not match loaded list. Click Refresh.")
             return
 
+        self._save_source_selection()
+
         self._set_busy(True)
         self._log(f"\n--- Exporting {len(items)} notebook(s) to {out} ---\n")
 
@@ -266,9 +515,10 @@ class NotebookExportGui:
                     nb_id = str(nb.get("id", ""))
                     title = str(nb.get("title", nb_id))
                     if not nb_id:
-                        self._log_q.put("[skip] missing id\n")
                         continue
+
                     self._log_q.put(f"\n>>> Export: {title}\n")
+
                     cmd = [
                         sys.executable,
                         "-m",
@@ -280,6 +530,17 @@ class NotebookExportGui:
                         "--delay",
                         "0.2",
                     ]
+
+                    nb_vars = self._source_selection.get(nb_id, {})
+                    if nb_vars:
+                        selected = [sid for sid, var in nb_vars.items() if var.get()]
+                        if not selected:
+                            self._log_q.put(f"[skip] No sources selected for {title}\n")
+                            continue
+                        if len(selected) < len(nb_vars):
+                            cmd.append("--sources")
+                            cmd.append(",".join(selected))
+
                     if self.var_summaries.get():
                         cmd.append("--summaries")
                     if self.var_sidecar_json.get():

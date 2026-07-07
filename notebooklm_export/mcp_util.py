@@ -38,8 +38,11 @@ def first_text_block(result: Any) -> str:
 def parse_tool_json(text: str) -> dict[str, Any]:
     text = text.strip()
     if not text:
-        return {}
-    return json.loads(text)
+        return {"status": "error", "message": "Empty MCP tool response"}
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        return {"status": "error", "message": f"Invalid JSON from MCP tool: {e}", "raw": text[:500]}
 
 
 def slugify(name: str, max_len: int = 120) -> str:
@@ -49,8 +52,11 @@ def slugify(name: str, max_len: int = 120) -> str:
 
 
 def extract_notebook_title_from_get(data: dict[str, Any]) -> str | None:
-    """First element of the nested `notebook` array is the human title."""
+    """Human-readable notebook title from ``notebook_get``."""
     nb = data.get("notebook")
+    if isinstance(nb, dict):
+        title = nb.get("title")
+        return title.strip() if isinstance(title, str) and title.strip() else None
     if not isinstance(nb, list) or not nb:
         return None
     inner = nb[0]
@@ -61,9 +67,25 @@ def extract_notebook_title_from_get(data: dict[str, Any]) -> str | None:
 
 def extract_sources_from_notebook_get(data: dict[str, Any]) -> list[tuple[str, str]]:
     """
-    Parse `notebook_get` payload: each source is
-    [ [<source_uuid>], "filename_or_title", ... ].
+    Parse ``notebook_get`` payload into (source_id, label) pairs.
+
+    Supports the current MCP shape (``sources`` list of dicts) and the legacy
+    nested array wire format used by older API responses.
     """
+    sources = data.get("sources")
+    if isinstance(sources, list):
+        out: list[tuple[str, str]] = []
+        for item in sources:
+            if not isinstance(item, dict):
+                continue
+            sid = item.get("id") or item.get("source_id")
+            if not isinstance(sid, str) or not sid:
+                continue
+            label = item.get("title") or item.get("label") or sid
+            out.append((sid, label if isinstance(label, str) else sid))
+        if out:
+            return out
+
     nb = data.get("notebook")
     if not isinstance(nb, list) or not nb:
         return []
@@ -74,7 +96,7 @@ def extract_sources_from_notebook_get(data: dict[str, Any]) -> list[tuple[str, s
     if not isinstance(sources_block, list):
         return []
 
-    out: list[tuple[str, str]] = []
+    out = []
     for item in sources_block:
         if not isinstance(item, list) or len(item) < 2:
             continue
@@ -84,6 +106,33 @@ def extract_sources_from_notebook_get(data: dict[str, Any]) -> list[tuple[str, s
             lab = label if isinstance(label, str) else sid
             out.append((sid, lab))
     return out
+
+
+def extract_source_details_from_notebook_get(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Like ``extract_sources_from_notebook_get`` but preserves extra fields when present."""
+    sources = data.get("sources")
+    if isinstance(sources, list) and sources and isinstance(sources[0], dict):
+        out: list[dict[str, Any]] = []
+        for item in sources:
+            if not isinstance(item, dict):
+                continue
+            sid = item.get("id") or item.get("source_id")
+            if not isinstance(sid, str) or not sid:
+                continue
+            row = {
+                "id": sid,
+                "title": item.get("title") or item.get("label") or sid,
+            }
+            if item.get("source_type"):
+                row["source_type"] = item["source_type"]
+            out.append(row)
+        if out:
+            return out
+
+    return [
+        {"id": sid, "title": label}
+        for sid, label in extract_sources_from_notebook_get(data)
+    ]
 
 
 def parse_notebook_list(data: dict[str, Any]) -> list[dict[str, Any]]:

@@ -16,6 +16,7 @@ from notebooklm_export.verify_export import run_verify_export_cli
 from notebooklm_export.mcp_util import (
     McpStdioConfig,
     extract_notebook_title_from_get,
+    extract_source_details_from_notebook_get,
     extract_sources_from_notebook_get,
     first_text_block,
     load_mcp_stdio_config,
@@ -37,6 +38,25 @@ def _rel_or_abs(path: Path, root: Path) -> str:
 async def call_tool_json(session: ClientSession, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     res = await session.call_tool(name, arguments)
     return parse_tool_json(first_text_block(res))
+
+
+async def call_tool_json_retry(
+    session: ClientSession,
+    name: str,
+    arguments: dict[str, Any],
+    *,
+    retries: int = 2,
+    retry_delay: float = 1.0,
+) -> dict[str, Any]:
+    """Call an MCP tool, retrying on non-success responses."""
+    last: dict[str, Any] = {}
+    for attempt in range(retries + 1):
+        last = await call_tool_json(session, name, arguments)
+        if last.get("status") == "success":
+            return last
+        if attempt < retries:
+            await asyncio.sleep(retry_delay)
+    return last
 
 
 async def resolve_notebook_id(
@@ -82,6 +102,21 @@ async def run_list(session: ClientSession, args: argparse.Namespace) -> int:
     return 0
 
 
+async def run_check_auth(session: ClientSession, args: argparse.Namespace) -> int:
+    """Verify that we can list notebooks (live session check)."""
+    payload = await call_tool_json(session, "notebook_list", {"max_results": 1})
+    if payload.get("status") == "success":
+        if not args.quiet:
+            print("Authorization is LIVE and working.")
+        return 0
+    else:
+        print("[ERROR] Authorization failed or expired.", file=sys.stderr)
+        if not args.quiet:
+            print(f"Details: {json.dumps(payload, indent=2, default=str)}", file=sys.stderr)
+            print("\nFix: Run 'nlm login' (or 'notebooklm-mcp-auth') to re-authenticate.", file=sys.stderr)
+        return 1
+
+
 async def run_export(session: ClientSession, args: argparse.Namespace) -> int:
     notebook_id, res_msg = await resolve_notebook_id(
         session,
@@ -103,6 +138,14 @@ async def run_export(session: ClientSession, args: argparse.Namespace) -> int:
 
     title = extract_notebook_title_from_get(details) or notebook_id
     sources = extract_sources_from_notebook_get(details)
+    
+    if args.sources:
+        allowed = {s.strip() for s in args.sources.split(",") if s.strip()}
+        sources = [s for s in sources if s[0] in allowed]
+        if not sources:
+            print(f"No sources matched the filter: {args.sources}", file=sys.stderr)
+            return 1
+
     if not sources:
         print(
             "No sources parsed from notebook_get; the API shape may have changed.",
@@ -123,7 +166,13 @@ async def run_export(session: ClientSession, args: argparse.Namespace) -> int:
 
     for source_id, label in sources:
         await asyncio.sleep(args.delay)
-        payload = await call_tool_json(session, "source_get_content", {"source_id": source_id})
+        payload = await call_tool_json_retry(
+            session,
+            "source_get_content",
+            {"source_id": source_id},
+            retries=args.retries,
+            retry_delay=args.retry_delay,
+        )
         if payload.get("status") != "success":
             manifest["sources"].append(
                 {"source_id": source_id, "label": label, "error": payload},
@@ -134,7 +183,22 @@ async def run_export(session: ClientSession, args: argparse.Namespace) -> int:
         txt_path = nb_dir / f"{base}.txt"
 
         text_body = payload.get("content") or ""
+        declared_count = payload.get("char_count")
+        if isinstance(declared_count, int) and declared_count > 0 and not text_body:
+            manifest["sources"].append(
+                {
+                    "source_id": source_id,
+                    "label": label,
+                    "error": {
+                        "status": "error",
+                        "message": f"API reported char_count={declared_count} but content was empty",
+                    },
+                },
+            )
+            continue
+
         txt_path.write_text(text_body, encoding="utf-8")
+        written_len = len(text_body)
 
         meta: dict[str, Any] = {
             "notebook_id": notebook_id,
@@ -143,10 +207,13 @@ async def run_export(session: ClientSession, args: argparse.Namespace) -> int:
             "label": label,
             "title": payload.get("title"),
             "source_type": payload.get("source_type"),
-            "char_count": payload.get("char_count"),
+            "char_count": declared_count if declared_count is not None else written_len,
+            "written_char_count": written_len,
             "url": payload.get("url"),
             "text_file": _rel_or_abs(txt_path, out_root),
         }
+        if isinstance(declared_count, int) and declared_count > 0 and abs(written_len - declared_count) > 1:
+            meta["char_count_mismatch"] = {"declared": declared_count, "written": written_len}
 
         if args.summaries:
             await asyncio.sleep(args.delay)
@@ -179,6 +246,22 @@ async def run_export(session: ClientSession, args: argparse.Namespace) -> int:
     ok = sum(1 for s in manifest["sources"] if "error" not in s)
     print(f"Exported {ok}/{len(sources)} sources to {nb_dir}")
     return 0 if ok == len(sources) else 2
+
+
+async def run_get_sources(session: ClientSession, args: argparse.Namespace) -> int:
+    """Fetch sources for a notebook and print as JSON (for GUI)."""
+    details = await call_tool_json(session, "notebook_get", {"notebook_id": args.notebook_id})
+    if details.get("status") != "success":
+        print(json.dumps(details), file=sys.stderr)
+        return 1
+    
+    sources_raw = extract_sources_from_notebook_get(details)
+    sources = extract_source_details_from_notebook_get(details)
+    if not sources and sources_raw:
+        sources = [{"id": sid, "title": label} for sid, label in sources_raw]
+    
+    print(json.dumps({"sources": sources}))
+    return 0
 
 
 async def run_ask(session: ClientSession, args: argparse.Namespace) -> int:
@@ -326,7 +409,31 @@ async def amain(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Write studio_status.json (generated asset metadata / URLs)",
     )
+    p_exp.add_argument(
+        "--sources",
+        help="Optional comma-separated list of source UUIDs to export (default: all)",
+    )
+    p_exp.add_argument(
+        "--retries",
+        type=int,
+        default=2,
+        help="Retries per source when source_get_content fails (default: 2)",
+    )
+    p_exp.add_argument(
+        "--retry-delay",
+        type=float,
+        default=1.0,
+        help="Seconds between retries for source_get_content (default: 1.0)",
+    )
     p_exp.set_defaults(func=run_export)
+
+    p_get_src = sub.add_parser("get-sources", help="Fetch sources for a notebook (JSON output)")
+    p_get_src.add_argument("notebook_id", help="Notebook UUID")
+    p_get_src.set_defaults(func=run_get_sources)
+
+    p_check = sub.add_parser("check-auth", help="Verify NotebookLM authorization is live")
+    p_check.add_argument("--quiet", action="store_true", help="Minimize output")
+    p_check.set_defaults(func=run_check_auth)
 
     p_dis = sub.add_parser("discover", help="Print tool names from the connected MCP server")
     p_dis.add_argument("--json", action="store_true")

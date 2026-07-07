@@ -6,13 +6,17 @@ This tool starts its **own** short-lived MCP process. It does not replace or con
 
 ## Setup
 
-1. Install Node’s `notebooklm-mcp` globally or use `npx`, and authenticate once:
+1. Install the NotebookLM MCP server and authenticate once (uses the same session as Cursor):
 
-   ```bash
-   npx notebooklm-mcp-auth
+   ```powershell
+   pip install notebooklm-mcp-cli
+   nlm login
+   nlm login --check
    ```
 
-   Tokens are stored under `~/.notebooklm-mcp/auth.json` (Windows: `%USERPROFILE%\.notebooklm-mcp\auth.json`).
+   Auth is stored under `%USERPROFILE%\.notebooklm-mcp-cli\profiles\default`.
+
+   Alternative auth command: `notebooklm-mcp-auth` (npm `notebooklm-mcp` package).
 
 2. Install this package:
 
